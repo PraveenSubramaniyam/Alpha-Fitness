@@ -14,11 +14,13 @@ public final class UserTable {
     public static final String COLUMN_SEX = "Sex";
     public static final String COLUMN_WEIGHT = "Weight";
     public static final String COLUMN_HEIGHT = "Height";
+    public static final String COLUMN_AGE = "Age";
     public static final String CREATE_ENTRIES =
             "CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (" +
                     COLUMN_USERID + " INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL," +
                     COLUMN_USERNAME + TEXT_TYPE + COMMA_SEP +
                     COLUMN_SEX + TEXT_TYPE + COMMA_SEP+
+                    COLUMN_AGE+ INTEGER_TYPE + COMMA_SEP+
                     COLUMN_WEIGHT + INTEGER_TYPE + COMMA_SEP +
                     COLUMN_HEIGHT + INTEGER_TYPE + " )";
 }

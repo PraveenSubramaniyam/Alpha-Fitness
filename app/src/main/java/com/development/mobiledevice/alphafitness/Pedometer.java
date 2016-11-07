@@ -19,40 +19,60 @@
 package com.development.mobiledevice.alphafitness;
 
 
-import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.SystemClock;
 import android.preference.PreferenceManager;
+import android.support.v4.app.FragmentActivity;
 import android.util.Log;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CircleOptions;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.PolylineOptions;
+import android.support.v4.content.ContextCompat;
+import  	android.support.v4.app.ActivityCompat;
+import android.Manifest;
 
-public class Pedometer extends Activity {
+import java.util.ArrayList;
+
+public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
 	private static final String TAG = "Pedometer";
     private SharedPreferences mSettings;
     private PedometerSettings mPedometerSettings;
     private TextView mStepValueView;
-    TextView mDesiredPaceView;
-    private int mStepValue;
+    private TextView mDurationView;
+    private double mStepValue;
     private boolean mQuitting = false; // Set when user selected Quit from menu, can be used by onPause, onStop, onDestroy
-
+    private GoogleMap mMap;
+    private CountDownTimer newtimer;
     /**
      * True, when service is running.
      */
-    private boolean mIsRunning = false;
+    private static boolean mIsRunning = false;
+    private long startTime = 0L;
+    private Handler customHandler = new Handler();
+    long timeInMilliseconds = 0L;
+    long timeSwapBuff = 0L;
+    long updatedTime = 0L;
     
     /** Called when the activity is first created. */
     @Override
@@ -73,36 +93,155 @@ public class Pedometer extends Activity {
         }
         c.close();
         myDB.close();
+
+        mSettings = PreferenceManager.getDefaultSharedPreferences(this);
+        mPedometerSettings = new PedometerSettings(mSettings);
         if (userExists == 0)
         {
-            setContentView(R.layout.activity_main);
+            //setContentView(R.layout.createuser);
+            Intent intent= new Intent(Pedometer.this,createUser.class);
+            startActivity(intent);
+            finish();
+            return;
         }
         else
         {
+            setContentView(R.layout.activity_main);
             mIsRunning = mPedometerSettings.isServiceRunning();
             if(mIsRunning)
             {
-                setContentView(R.layout.activity_main);
                 Button startWorkout = (Button) findViewById(R.id.startWorkout);
                 startWorkout.setText("Stop Workout");
+                bindStepService();
+                startDurationCounter();
             }
         }
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+
+        mStepValueView = (TextView) findViewById(R.id.distance);
+        mDurationView = (TextView) findViewById(R.id.duration);
+        if(mDurationView == null)
+            Log.i(TAG,"durationview object null");
+
     }
-    
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+        // Add a marker in Sydney and move the camera
+        //LatLng sydney = new LatLng(-34, 151);
+        //mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
+        //mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+        mMap.getUiSettings().setZoomControlsEnabled(true);
+    }
+
+
+    private void drawPath(LatLongArrayClass pointsList){
+
+        if(pointsList == null) {
+            Log.e(TAG, "points is null");
+            return;
+        }
+
+        ArrayList<LatLongClass> points = pointsList.getLatLongArray();
+        if(points == null || points.size() <= 0){
+            Log.e(TAG, "Expecting points - no points recieved");
+            return;
+        }
+
+        LatLongClass startPoint = points.get(0);
+        LatLongClass endPoint = points.get(points.size()-1);
+        mMap.clear();  //clears all Markers and Polylines
+
+        if(points.size() > 1) {
+            PolylineOptions options = new PolylineOptions().width(10).color(Color.RED).geodesic(true);
+            for (LatLongClass p : points) {
+                LatLng latLng = new LatLng(p.getLatitude(), p.getLongitude());
+                options.add(latLng);
+            }
+            mMap.addPolyline(options); //add Polyline
+            int DARK_GREEN = Color.argb(1, 0, 102, 0);
+            mMap.addCircle(new CircleOptions()
+                    .center(new LatLng(endPoint.getLatitude(), endPoint.getLongitude())) //end location
+                    .radius(7)
+                    .strokeColor(DARK_GREEN)
+                    .fillColor(DARK_GREEN));
+        }
+
+        mMap.addCircle(new CircleOptions()
+                .center(new LatLng(startPoint.getLatitude(), startPoint.getLongitude())) //start location
+                .radius(7)
+                .strokeColor(Color.BLUE)
+                .fillColor(Color.BLUE));
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(endPoint.getLatitude(), endPoint.getLongitude()),
+                (float) 17));
+    }
+
     @Override
     protected void onStart() {
         Log.i(TAG, "[ACTIVITY] onStart");
         super.onStart();
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
     }
 
     @Override
     protected void onResume() {
         Log.i(TAG, "[ACTIVITY] onResume");
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+
+            // Should we show an explanation?
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)) {
+
+                // Show an expanation to the user *asynchronously* -- don't block
+                // this thread waiting for the user's response! After the user
+                // sees the explanation, try again to request the permission.
+
+            } else {
+
+                // No explanation needed, we can request the permission.
+                // PERMISSION_REQUEST_ACCESS_FINE_LOCATION can be any unique int
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},1);
+            }
+        }
         super.onResume();
     }
-    
-    private void displayDesiredPaceOrSpeed() {
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String permissions[], int[] grantResults) {
+        switch (requestCode) {
+            case 1: {
+                // If request is cancelled, the result arrays are empty.
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                    // permission was granted, yay! Do the
+                    // contacts-related task you need to do.
+                    Log.i(TAG, "[ACTIVITY] Permission granted");
+
+                } else {
+
+                    // permission denied, boo! Disable the
+                    // functionality that depends on this permission.
+                }
+                return;
+            }
+
+            // other 'case' lines to check for other
+            // permissions this app might request
+        }
+    }
+    
+    public void activateProfileScreen (View view)
+    {
+        Intent intent= new Intent(Pedometer.this,ProfileScreen.class);
+        startActivity(intent);
+        finish();
     }
 
     public void startWorkout (View view)
@@ -112,8 +251,6 @@ public class Pedometer extends Activity {
             startWorkout.setText("Stop Workout");
 
             mSettings = PreferenceManager.getDefaultSharedPreferences(this);
-            mPedometerSettings = new PedometerSettings(mSettings);
-
             // Read from preferences if the service was running on the last onPause
             mIsRunning = mPedometerSettings.isServiceRunning();
             Log.i(TAG, "[ACTIVITY] is service running "+mIsRunning);
@@ -122,13 +259,9 @@ public class Pedometer extends Activity {
                 Log.i(TAG, "[ACTIVITY] Starting Service ");
                 startStepService();
                 bindStepService();
-            } else if (mIsRunning) {
-                bindStepService();
             }
 
-            mStepValueView = (TextView) findViewById(R.id.distance);
             mPedometerSettings.clearServiceRunning();
-            displayDesiredPaceOrSpeed();
         }
         else
         {
@@ -144,8 +277,8 @@ public class Pedometer extends Activity {
         Log.i(TAG, "[ACTIVITY] onPause");
         if (mIsRunning) {
             unbindStepService();
+            customHandler.removeCallbacks(updateTimerThread);
         }
-
         mPedometerSettings.saveServiceRunning(mIsRunning);
         super.onPause();
         savePaceSetting();
@@ -190,14 +323,49 @@ public class Pedometer extends Activity {
             mService = null;
         }
     };
-    
 
+
+
+
+
+    private Runnable updateTimerThread = new Runnable() {
+
+        public void run() {
+
+            timeInMilliseconds = SystemClock.uptimeMillis() - startTime;
+            updatedTime = timeSwapBuff + timeInMilliseconds;
+            int secs = (int) (updatedTime / 1000);
+            int mins = secs / 60;
+            secs = secs % 60;
+            int milliseconds = (int) (updatedTime % 1000);
+
+            mDurationView.setText("" + mins + ":"
+                            + String.format("%02d", secs) + ":"
+                            + String.format("%03d", milliseconds));
+            customHandler.postDelayed(this, 0);
+
+        }
+    };
+
+    public void startDurationCounter ()
+    {
+        if(mIsRunning)
+            startTime = mPedometerSettings.getWorkoutStartTime();
+        else {
+            startTime = SystemClock.uptimeMillis();
+            mPedometerSettings.saveWorkoutStartTime(startTime);
+        }
+        customHandler.postDelayed(updateTimerThread, 0);
+    }
+    
     private void startStepService() {
         if (!mIsRunning) {
             Log.i(TAG, "[SERVICE] Start");
+            startDurationCounter();
             mIsRunning = true;
             startService(new Intent(Pedometer.this,
                     StepService.class));
+
         }
         else
             Log.i(TAG,"[SERVICE] Service already running");
@@ -222,6 +390,8 @@ public class Pedometer extends Activity {
                   StepService.class));
         }
         mIsRunning = false;
+       // timeSwapBuff += timeInMilliseconds;
+        customHandler.removeCallbacks(updateTimerThread);
     }
     
     private void resetValues(boolean updateDisplay) {
@@ -243,92 +413,39 @@ public class Pedometer extends Activity {
         }
     }
 
-    private static final int MENU_SETTINGS = 8;
-    private static final int MENU_QUIT     = 9;
-
-    private static final int MENU_PAUSE = 1;
-    private static final int MENU_RESUME = 2;
-    private static final int MENU_RESET = 3;
-    
-    /* Creates the menu items */
-    public boolean onPrepareOptionsMenu(Menu menu) {
-        menu.clear();
-
-        return true;
-    }
-
-    /* Handles item selections */
-    public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case MENU_PAUSE:
-                unbindStepService();
-                stopStepService();
-                return true;
-            case MENU_RESUME:
-                startStepService();
-                bindStepService();
-                return true;
-            case MENU_RESET:
-                resetValues(true);
-                return true;
-            case MENU_QUIT:
-                resetValues(false);
-                unbindStepService();
-                stopStepService();
-                mQuitting = true;
-                finish();
-                return true;
-        }
-        return false;
-    }
- 
     // TODO: unite all into 1 type of message
     private StepService.ICallback mCallback = new StepService.ICallback() {
-        public void stepsChanged(int value) {
-            mHandler.sendMessage(mHandler.obtainMessage(STEPS_MSG, value, 0));
+        public void stepsChanged(double value) {
+            Message msg = new Message();
+            msg.what = STEPS_MSG;
+            msg.obj = new Double(value);
+            mHandler.sendMessage(msg);
         }
-        public void paceChanged(int value) {
-            mHandler.sendMessage(mHandler.obtainMessage(PACE_MSG, value, 0));
-        }
-        public void distanceChanged(float value) {
-            mHandler.sendMessage(mHandler.obtainMessage(DISTANCE_MSG, (int)(value*1000), 0));
-        }
-        public void speedChanged(float value) {
-            mHandler.sendMessage(mHandler.obtainMessage(SPEED_MSG, (int)(value*1000), 0));
-        }
-        public void caloriesChanged(float value) {
-            mHandler.sendMessage(mHandler.obtainMessage(CALORIES_MSG, (int)(value), 0));
+
+        public void locationChanged(Object obj)
+        {
+            Message msg = new Message();
+            msg.what = LOCATION_MSG;
+            msg.obj = obj;
+            mHandler.sendMessage(msg);
         }
     };
     
     private static final int STEPS_MSG = 1;
-    private static final int PACE_MSG = 2;
-    private static final int DISTANCE_MSG = 3;
-    private static final int SPEED_MSG = 4;
-    private static final int CALORIES_MSG = 5;
+    private static final int LOCATION_MSG = 2;
     
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case STEPS_MSG:
-                    mStepValue = (int)msg.arg1;
+                    mStepValue = (double)msg.obj;
+                    Log.i(TAG,"Distance: "+mStepValue);
                     mStepValueView.setText("" + mStepValue);
                     break;
-                case PACE_MSG:
-
-                    break;
-                case DISTANCE_MSG:
-                    //mDistanceValue = ((int)msg.arg1)/1000f;
-
-                    break;
-                case SPEED_MSG:
-                   // mSpeedValue = ((int)msg.arg1)/1000f;
-
-                    break;
-                case CALORIES_MSG:
-                   // mCaloriesValue = msg.arg1;
-
+                case LOCATION_MSG:
+                    LatLongArrayClass pointsArray = (LatLongArrayClass) msg.obj;
+                    drawPath(pointsArray);
                     break;
                 default:
                     super.handleMessage(msg);

@@ -4,17 +4,17 @@
     <string name="last_name">Last Name</string>
     <string name="age">Age</string>
     <string name="sex">Sex</string>
-    <string name="weight">Weight</string>
-    <string name="height">Height</string>
+    <string name="weight">Weight (Lbs)</string>
+    <string name="height">Height (cms)</string>
 
     <string name="enter_details">ENTER DETAILS</string>
     <string name="add_user">ADD USER</string>
-    <string name="avg_weekly">Average/Weekly</string>
+    <string name="avg_weekly">AVERAGE/WEEKLY</string>
     <string name="distance">Distance</string>
     <string name="time">Time</string>
     <string name="workout">Workouts</string>
     <string name="calories_burned">Calories Burned</string>
-    <string name="all_time">All Time</string>
+    <string name="all_time">ALL TIME</string>
     <string name="record_workout">Record Workout</string>
     <string name="km">KM</string>
     <string name="minutes">Minutes</string>
@@ -105,5 +105,7 @@
     <string name="inches">inches</string>
     <string name="kilograms">kilograms</string>
     <string name="pounds">pounds</string>
+    <string name="title_activity_maps">Map</string>
+    <string name="average">AVG</string>
 
 </resources>

@@ -152,6 +152,53 @@ public class PedometerSettings {
         editor.commit();
     }
 
+    public void saveWorkoutStartTime(long startTime) {
+        SharedPreferences.Editor editor = mSettings.edit();
+        editor.putLong("startTime", startTime);
+        editor.commit();
+    }
+
+    public long getWorkoutStartTime()
+    {
+        return mSettings.getLong("startTime", 0);
+    }
+
+    public void saveStepCountTableId(long id)
+    {
+        SharedPreferences.Editor editor = mSettings.edit();
+        editor.putLong("stepCountId", id);
+        editor.commit();
+    }
+
+    public long getStepCountTableId()
+    {
+        return mSettings.getLong("stepCountId", 0);
+    }
+
+    public void saveUserheight(int height)
+    {
+        SharedPreferences.Editor editor = mSettings.edit();
+        editor.putInt("height", height);
+        editor.commit();
+    }
+
+    public int getUserheight()
+    {
+        return mSettings.getInt("height", 0);
+    }
+
+    public void saveUserSex(String sex)
+    {
+        SharedPreferences.Editor editor = mSettings.edit();
+        editor.putString("sex", sex);
+        editor.commit();
+    }
+
+    public String getUserSex()
+    {
+        return mSettings.getString("sex", "");
+    }
+
     public void clearServiceRunning() {
         SharedPreferences.Editor editor = mSettings.edit();
         editor.putBoolean("service_running", false);

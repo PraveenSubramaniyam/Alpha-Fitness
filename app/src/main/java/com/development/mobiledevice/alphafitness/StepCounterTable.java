@@ -12,11 +12,13 @@ public final class StepCounterTable {
     public static final String C_STARTTIME = "StartTime";
     public static final String C_ENDTIME = "EndTime";
     public static final String C_COUNT = "Count";
+    public static final String C_TOTALTIME = "totalSecs";
 
     public static final String CREATE_ENTRIES =
             "CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (" +
                     C_ID + " INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL," +
                     C_STARTTIME + DATE_TIME + COMMA_SEP +
                     C_ENDTIME + DATE_TIME + COMMA_SEP+
-                    C_COUNT + INTEGER_TYPE + " )";
+                    C_COUNT + INTEGER_TYPE + COMMA_SEP+
+                    C_TOTALTIME + INTEGER_TYPE+" )";
 }

@@ -22,18 +22,34 @@ package com.development.mobiledevice.alphafitness;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.BroadcastReceiver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.database.sqlite.SQLiteDatabase;
 import android.hardware.Sensor;
 import android.hardware.SensorManager;
+import android.location.Location;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
 import android.widget.Toast;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 
 /**
@@ -47,7 +63,7 @@ import android.widget.Toast;
  * interact with the user, rather than doing something more disruptive such as
  * calling startActivity().
  */
-public class StepService extends Service {
+public class StepService extends Service implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
 	private static final String TAG = "Pedometer";
     private SharedPreferences mSettings;
     private PedometerSettings mPedometerSettings;
@@ -57,6 +73,13 @@ public class StepService extends Service {
     private Sensor mSensor;
     private StepDetector mStepDetector;
     private StepDisplayer mStepDisplayer;
+    LatLongArrayClass LatLongPoints;
+    private double prevLatitude;
+    private double prevLongitude;
+    private double stepLength;
+    private long workStartTime;
+
+
 
     
     private PowerManager.WakeLock wakeLock;
@@ -66,7 +89,67 @@ public class StepService extends Service {
     private float mDistance;
     private float mCalories;
     private DataBaseHelper db;
-    
+    private GoogleApiClient mGoogleApiClient;
+    private LocationRequest mLocationRequest;
+
+    private void handleNewLocation(Location location) {
+        Log.d(TAG, location.toString());
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+        Log.i(TAG, "Location services connected.");
+        Location location = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+
+        if (location == null) {
+            // Blank for a moment...
+            Log.i(TAG,"Location Null");
+           // LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+        }
+        else {
+            handleNewLocation(location);
+        };
+
+        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        Toast.makeText(this, "onLocation Changed" , Toast.LENGTH_LONG).show();
+        Log.i(TAG, "On Location Changed Called");
+
+        double latitude = location.getLatitude();
+        double longitude = location.getLongitude();
+        //counter += 0.002; //todo: remove later
+        if(latitude != prevLatitude || longitude != prevLongitude || LatLongPoints == null)
+        {
+            prevLatitude = latitude;
+            prevLongitude = longitude;
+            if(LatLongPoints == null)
+                LatLongPoints = new LatLongArrayClass();
+            LatLongPoints.addLatLong(latitude, longitude);
+
+            if (mCallback != null) {
+                mCallback.locationChanged(LatLongPoints);
+            }
+            Log.i(TAG,"Change in Location");
+            Toast.makeText(this, "Change in Location" , Toast.LENGTH_LONG).show();
+            handleNewLocation(location);
+        }
+
+
+    }
+
     /**
      * Class for clients to access.  Because we know this service always
      * runs in the same process as its clients, we don't need to deal with
@@ -82,18 +165,34 @@ public class StepService extends Service {
     public void onCreate() {
         Log.i(TAG, "[STEP SERVICE] onCreate");
         super.onCreate();
-        
-        mNM = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-        showNotification();
-        
+
         // Load settings
         mSettings = PreferenceManager.getDefaultSharedPreferences(this);
         mPedometerSettings = new PedometerSettings(mSettings);
+
+        db = new DataBaseHelper(getApplicationContext());
+        long id = db.insertStepCounterTable();
+        Log.i(TAG, "[STEPSERVICE.JAVA] Registered sensor.. Created entry in step Counter table id: "+id);
+        mPedometerSettings.saveStepCountTableId(id);
+        /*
+        Estimate by Height
+        These are rough estimates, but useful to check your results by the other methods. It is the method used in the automatic settings of many pedometers and activity trackers:
+        Females: Your height x .413 equals your stride length
+        Males: Your height x .415 equals your stride length
+         */
+        if((mPedometerSettings.getUserSex().equals("Male")))
+            stepLength = mPedometerSettings.getUserheight()*0.415;
+        else
+            stepLength = mPedometerSettings.getUserheight()*0.413;
+
+        Log.i(TAG,"StepLength: "+stepLength);
+        mNM = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+        showNotification();
+        
+
         mState = getSharedPreferences("state", 0);
         acquireWakeLock();
 
-
-        
         // Start detecting
         mStepDetector = new StepDetector();
         mSensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
@@ -108,6 +207,21 @@ public class StepService extends Service {
         mStepDisplayer.setSteps(mSteps = mState.getInt("steps", 0));
         mStepDisplayer.addListener(mStepListener);
         mStepDetector.addStepListener(mStepDisplayer);
+
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(LocationServices.API)
+                .build();
+
+        mLocationRequest = LocationRequest.create()
+                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+                .setInterval(10 * 1000)        // 10 seconds, in milliseconds
+                .setFastestInterval(1 * 1000); // 1 second, in milliseconds
+
+        mGoogleApiClient.connect();
+        workStartTime = System.currentTimeMillis()/1000;
     }
     
     @Override
@@ -116,6 +230,12 @@ public class StepService extends Service {
         super.onStart(intent, startId);
     }
 
+    private String getDateTime() {
+        SimpleDateFormat dateFormat = new SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+        Date date = new Date();
+        return dateFormat.format(date);
+    }
     @Override
     public void onDestroy() {
         Log.i(TAG, "[SERVICE] onDestroy");
@@ -141,6 +261,19 @@ public class StepService extends Service {
         mSensorManager.unregisterListener(mStepDetector);
 
         // Tell the user we stopped.
+        long id = mPedometerSettings.getStepCountTableId();
+        long totalSecs = (System.currentTimeMillis()/1000) - workStartTime;
+
+        ContentValues values = new ContentValues();
+        values.put(StepCounterTable.C_COUNT, mSteps);
+        values.put(StepCounterTable.C_ENDTIME, getDateTime());
+        values.put(StepCounterTable.C_TOTALTIME,totalSecs);
+
+        db.endStepCounterValue(values, id);
+        if (mGoogleApiClient.isConnected()) {
+            LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+            mGoogleApiClient.disconnect();
+        }
         Toast.makeText(this, getText(R.string.stopped), Toast.LENGTH_SHORT).show();
     }
 
@@ -153,9 +286,6 @@ public class StepService extends Service {
             mSensor,
             SensorManager.SENSOR_STATUS_ACCURACY_HIGH);
 
-        db = new DataBaseHelper(getApplicationContext());
-        db.insertStepCounterTable();
-        Log.i(TAG, "[SERVICE] Registered sensor");
     }
 
     private void unregisterDetector() {
@@ -174,11 +304,8 @@ public class StepService extends Service {
     private final IBinder mBinder = new StepBinder();
 
     public interface ICallback {
-        public void stepsChanged(int value);
-        public void paceChanged(int value);
-        public void distanceChanged(float value);
-        public void speedChanged(float value);
-        public void caloriesChanged(float value);
+        public void stepsChanged(double value);
+        public void locationChanged(Object obj);
     }
     
     private ICallback mCallback;
@@ -234,31 +361,13 @@ public class StepService extends Service {
         }
         public void passValue() {
             if (mCallback != null) {
-                mCallback.stepsChanged(mSteps);
+                mCallback.stepsChanged((mSteps*stepLength)/100000);
             }
         }
     };
 
-    /**
-     * Forwards distance values from DistanceNotifier to the activity. 
-     */
-    private DistanceNotifier.Listener mDistanceListener = new DistanceNotifier.Listener() {
-        public void valueChanged(float value) {
-            mDistance = value;
-            passValue();
-        }
-        public void passValue() {
-            if (mCallback != null) {
-                mCallback.distanceChanged(mDistance);
-            }
-        }
-    };
 
-    /**
-     * Forwards calories values from CaloriesNotifier to the activity.
-     */
 
-    
     /**
      * Show a notification while this service is running.
      */
