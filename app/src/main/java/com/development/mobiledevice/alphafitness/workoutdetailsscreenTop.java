@@ -3,17 +3,18 @@ package com.development.mobiledevice.alphafitness;
 
 import android.app.Fragment;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
 public class workoutdetailsscreenTop extends Fragment {
-    
+    private static final String TAG = "Pedometer";
     int mCurCheckPosition = 0;
        
     public View onCreateView (LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState)
     {
-       System.out.println("view created");
+        Log.i(TAG,"view created11ss1");
        return inflater.inflate(R.layout.workoutdetailsscreentop, container, false);
     }
 

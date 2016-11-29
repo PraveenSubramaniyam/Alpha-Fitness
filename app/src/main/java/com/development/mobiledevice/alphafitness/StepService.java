@@ -1,20 +1,3 @@
-/*
- *  Pedometer - Android App
- *  Copyright (C) 2009 Levente Bagi
- *
- *  This program is free software: you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation, either version 3 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
 
 package com.development.mobiledevice.alphafitness;
 
@@ -27,10 +10,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.database.sqlite.SQLiteDatabase;
 import android.hardware.Sensor;
 import android.hardware.SensorManager;
 import android.location.Location;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -48,26 +31,16 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Timer;
+import java.util.TimerTask;
 
-
-/**
- * This is an example of implementing an application service that runs locally
- * in the same process as the application.  The {StepServiceController}
- * and {StepServiceBinding} classes show how to interact with the
- * service.
- *
- * <p>Notice the use of the {@link NotificationManager} when interesting things
- * happen in the service.  This is generally how background services should
- * interact with the user, rather than doing something more disruptive such as
- * calling startActivity().
- */
 public class StepService extends Service implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
 	private static final String TAG = "Pedometer";
     private SharedPreferences mSettings;
     private PedometerSettings mPedometerSettings;
-    private SharedPreferences mState;
     private SharedPreferences.Editor mStateEditor;
     private SensorManager mSensorManager;
     private Sensor mSensor;
@@ -76,19 +49,16 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
     LatLongArrayClass LatLongPoints;
     private double prevLatitude;
     private double prevLongitude;
-    private double stepLength;
     private long workStartTime;
-
+    private int lastStepsCounts = 0;
+    private ArrayList<Integer> stepCountArray;
+    private Timer timer;
+    long loop =0 ;
 
 
     
     private PowerManager.WakeLock wakeLock;
-    private NotificationManager mNM;
-
-    private int mSteps;
-    private float mDistance;
-    private float mCalories;
-    private DataBaseHelper db;
+    private int mSteps = 0 ;
     private GoogleApiClient mGoogleApiClient;
     private LocationRequest mLocationRequest;
 
@@ -125,12 +95,34 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
 
     @Override
     public void onLocationChanged(Location location) {
-        Toast.makeText(this, "onLocation Changed" , Toast.LENGTH_LONG).show();
+        //Toast.makeText(this, "onLocation Changed" , Toast.LENGTH_LONG).show();
         Log.i(TAG, "On Location Changed Called");
 
         double latitude = location.getLatitude();
         double longitude = location.getLongitude();
+/*
+        if(LatLongPoints == null) {
+            LatLongPoints = new LatLongArrayClass();
+            LatLongPoints.addLatLong(latitude, longitude);
+
+        }
+        else
+        {
+            LatLongClass point = LatLongPoints.getLastLatLongClass();
+            if (loop % 2 == 0) {
+                LatLongPoints.addLatLong((point.getLatitude()+0.002),point.getLongitude());
+            } else {
+                // odd
+                LatLongPoints.addLatLong(point.getLatitude(),(point.getLongitude()+0.002));
+            }
+        }
+        loop++;
+        if (mCallback != null) {
+            mCallback.locationChanged(LatLongPoints);
+        }
+*/
         //counter += 0.002; //todo: remove later
+
         if(latitude != prevLatitude || longitude != prevLongitude || LatLongPoints == null)
         {
             prevLatitude = latitude;
@@ -143,11 +135,9 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
                 mCallback.locationChanged(LatLongPoints);
             }
             Log.i(TAG,"Change in Location");
-            Toast.makeText(this, "Change in Location" , Toast.LENGTH_LONG).show();
+            //Toast.makeText(this, "Change in Location" , Toast.LENGTH_LONG).show();
             handleNewLocation(location);
         }
-
-
     }
 
     /**
@@ -166,31 +156,28 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
         Log.i(TAG, "[STEP SERVICE] onCreate");
         super.onCreate();
 
+        stepCountArray = new ArrayList<Integer>();
+
         // Load settings
         mSettings = PreferenceManager.getDefaultSharedPreferences(this);
         mPedometerSettings = new PedometerSettings(mSettings);
 
-        db = new DataBaseHelper(getApplicationContext());
-        long id = db.insertStepCounterTable();
-        Log.i(TAG, "[STEPSERVICE.JAVA] Registered sensor.. Created entry in step Counter table id: "+id);
-        mPedometerSettings.saveStepCountTableId(id);
+        //db = new DataBaseHelper(getApplicationContext());
+        ContentValues values = new ContentValues();
+        values.put(StepCounterTable.C_STARTTIME, getDateTime());
+        values.put(StepCounterTable.C_COUNT, 0);
+
+        //long id = db.insertStepCounterTable();
+        Uri uri = getContentResolver().insert(PedometerContentProvider.STEPTABLE_CONTENT_URI, values);
+        Log.i(TAG, "[STEPSERVICE.JAVA] Registered sensor.. Created entry in step Counter table id: "+uri.toString());
+        mPedometerSettings.saveStepCountTableId(uri.toString());
         /*
         Estimate by Height
         These are rough estimates, but useful to check your results by the other methods. It is the method used in the automatic settings of many pedometers and activity trackers:
         Females: Your height x .413 equals your stride length
         Males: Your height x .415 equals your stride length
          */
-        if((mPedometerSettings.getUserSex().equals("Male")))
-            stepLength = mPedometerSettings.getUserheight()*0.415;
-        else
-            stepLength = mPedometerSettings.getUserheight()*0.413;
-
-        Log.i(TAG,"StepLength: "+stepLength);
-        mNM = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-        showNotification();
-        
-
-        mState = getSharedPreferences("state", 0);
+        //mState = getSharedPreferences("state", 0);
         acquireWakeLock();
 
         // Start detecting
@@ -204,7 +191,7 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
         registerReceiver(mReceiver, filter);
 
         mStepDisplayer = new StepDisplayer(mPedometerSettings);
-        mStepDisplayer.setSteps(mSteps = mState.getInt("steps", 0));
+        //mStepDisplayer.setSteps(mSteps = mState.getInt("steps", 0));
         mStepDisplayer.addListener(mStepListener);
         mStepDetector.addStepListener(mStepDisplayer);
 
@@ -222,6 +209,7 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
 
         mGoogleApiClient.connect();
         workStartTime = System.currentTimeMillis()/1000;
+        startTimer();
     }
     
     @Override
@@ -239,49 +227,41 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
     @Override
     public void onDestroy() {
         Log.i(TAG, "[SERVICE] onDestroy");
-
-
         // Unregister our receiver.
         unregisterReceiver(mReceiver);
         unregisterDetector();
-        
-        mStateEditor = mState.edit();
-        mStateEditor.putInt("steps", mSteps);
-        mStateEditor.putFloat("distance", mDistance);
-        mStateEditor.putFloat("calories", mCalories);
-        mStateEditor.commit();
-        
-        mNM.cancel(R.string.app_name);
-
         wakeLock.release();
-        
+
         super.onDestroy();
         
         // Stop detecting
         mSensorManager.unregisterListener(mStepDetector);
 
-        // Tell the user we stopped.
-        long id = mPedometerSettings.getStepCountTableId();
+        String id = mPedometerSettings.getStepCountTableId();
         long totalSecs = (System.currentTimeMillis()/1000) - workStartTime;
+        mPedometerSettings.clearStepCount();
 
         ContentValues values = new ContentValues();
         values.put(StepCounterTable.C_COUNT, mSteps);
         values.put(StepCounterTable.C_ENDTIME, getDateTime());
         values.put(StepCounterTable.C_TOTALTIME,totalSecs);
 
-        db.endStepCounterValue(values, id);
+        Uri myUri = Uri.parse(id);
+        Log.i(TAG,"StepCountTableId: "+myUri.getPathSegments().get(1));
+        getContentResolver().update(PedometerContentProvider.STEPTABLE_CONTENT_URI,values,StepCounterTable.C_ID + " = " + myUri.getPathSegments().get(1),null);
+        //db.endStepCounterValue(values, id);
         if (mGoogleApiClient.isConnected()) {
             LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
             mGoogleApiClient.disconnect();
         }
         Toast.makeText(this, getText(R.string.stopped), Toast.LENGTH_SHORT).show();
+        timer.cancel();
+        mPedometerSettings.clearServiceRunning();
     }
 
     private void registerDetector() {
         mSensor = mSensorManager.getDefaultSensor(
-            Sensor.TYPE_STEP_DETECTOR /*|
-            Sensor.TYPE_MAGNETIC_FIELD | 
-            Sensor.TYPE_ORIENTATION*/);
+            Sensor.TYPE_STEP_DETECTOR);
         mSensorManager.registerListener(mStepDetector,
             mSensor,
             SensorManager.SENSOR_STATUS_ACCURACY_HIGH);
@@ -305,6 +285,7 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
 
     public interface ICallback {
         public void stepsChanged(double value);
+        public void graphData(Object obj);
         public void locationChanged(Object obj);
     }
     
@@ -312,42 +293,13 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
 
     public void registerCallback(ICallback cb) {
         mCallback = cb;
-        //mStepDisplayer.passValue();
-        //mPaceListener.passValue();
     }
-    
-    private int mDesiredPace;
-    private float mDesiredSpeed;
-    
-    /**
-     * Called by activity to pass the desired pace value, 
-     * whenever it is modified by the user.
-     * @param desiredPace
-     */
-    public void setDesiredPace(int desiredPace) {
 
+    public void unregisterCallback() {
+        mCallback = null;
     }
-    /**
-     * Called by activity to pass the desired speed value, 
-     * whenever it is modified by the user.
-     * @param desiredSpeed
-     */
-    public void setDesiredSpeed(float desiredSpeed) {
 
-    }
-    
-    public void reloadSettings() {
-        mSettings = PreferenceManager.getDefaultSharedPreferences(this);
-        
-        if (mStepDetector != null) { 
-            mStepDetector.setSensitivity(
-                    Float.valueOf(mSettings.getString("sensitivity", "10"))
-            );
-        }
-        
 
-    }
-    
     public void resetValues() {
         mStepDisplayer.setSteps(0);
 
@@ -357,26 +309,55 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
     private StepDisplayer.Listener mStepListener = new StepDisplayer.Listener() {
         public void stepsChanged(int value) {
             mSteps = value;
+            Log.i(TAG,"Steps: "+mSteps);
+            mPedometerSettings.saveStepCount(mSteps);
             passValue();
         }
         public void passValue() {
             if (mCallback != null) {
-                mCallback.stepsChanged((mSteps*stepLength)/100000);
+                Log.i(TAG,"mcallback not null");
+                mCallback.stepsChanged(mSteps*1.0);
             }
+            else
+                Log.i(TAG,"mcallback null");
         }
     };
 
+    void sendDataEvery5mins()
+    {
+        int last5minsSteps = mSteps - lastStepsCounts;
+        stepCountArray.add(last5minsSteps);
+        lastStepsCounts += last5minsSteps;
+        Log.i(TAG,"Total Step Counts: "+mSteps);
+        Log.i(TAG,"Steps Last mins "+last5minsSteps);
 
-
-    /**
-     * Show a notification while this service is running.
-     */
-    private void showNotification() {
-
+        if(mCallback != null )
+        {
+            mCallback.graphData(stepCountArray);
+            Log.i(TAG,"mcallback not null");
+        }
+        else
+            Log.i(TAG,"mcallback null");
     }
 
 
-    // BroadcastReceiver for handling ACTION_SCREEN_OFF.
+
+    void startTimer()
+    {
+        int MINUTES = 1; // The delay in minutes
+        timer = new Timer();
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() { // Function runs every MINUTES minutes.
+                // Run the code you want here
+                sendDataEvery5mins();
+            }
+        }, 0, 1000 * 60 * MINUTES);
+    }
+
+
+
+   // BroadcastReceiver for handling ACTION_SCREEN_OFF.
     private BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -403,11 +384,11 @@ public class StepService extends Service implements GoogleApiClient.ConnectionCa
             wakeFlags = PowerManager.SCREEN_DIM_WAKE_LOCK;
         }
         else {
+            Log.i(TAG,"Partial wake Lock acquiring");
             wakeFlags = PowerManager.PARTIAL_WAKE_LOCK;
         }
         wakeLock = pm.newWakeLock(wakeFlags, TAG);
         wakeLock.acquire();
     }
-
 }
 

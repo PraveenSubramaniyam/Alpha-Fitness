@@ -17,15 +17,18 @@ public class DataBaseHelper extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "AlphaFitness";
 
-    private static final int DATABASE_VERSION = 2;
+    private static final int DATABASE_VERSION = 1;
+    private static final String TAG = "Pedometer";
 
     public DataBaseHelper(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
     }
 
+
     // Method is called during creation of the database
     @Override
     public void onCreate(SQLiteDatabase database) {
+        Log.i(TAG,"DBhealper Oncreate Called");
         database.execSQL(UserTable.CREATE_ENTRIES);
         database.execSQL(StepCounterTable.CREATE_ENTRIES);
     }
@@ -46,6 +49,7 @@ public class DataBaseHelper extends SQLiteOpenHelper {
         Date date = new Date();
         return dateFormat.format(date);
     }
+
 
     public long insertStepCounterTable() {
         SQLiteDatabase db = this.getWritableDatabase();

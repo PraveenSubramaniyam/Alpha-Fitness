@@ -2,6 +2,7 @@ package com.development.mobiledevice.alphafitness;
 
 
 import android.app.Fragment;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -14,7 +15,12 @@ public class workoutscreenTop extends Fragment {
     public View onCreateView (LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState)
     {
        System.out.println("view created");
-       return inflater.inflate(R.layout.workoutscreentop, container, false);
+        if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
+            return inflater.inflate(R.layout.workoutscreentop, container, false);
+        }
+        else
+            return inflater.inflate(R.layout.workoutdetailsscreentop, container, false);
+
     }
 
 

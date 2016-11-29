@@ -24,5 +24,9 @@ public class LatLongArrayClass implements Serializable {
     public void setLatLongArray(ArrayList<LatLongClass> latLongArray) {
         LatLongArray = latLongArray;
     }
+    public LatLongClass getLastLatLongClass()
+    {
+        return LatLongArray.get(LatLongArray.size()-1);
+    }
 
 }

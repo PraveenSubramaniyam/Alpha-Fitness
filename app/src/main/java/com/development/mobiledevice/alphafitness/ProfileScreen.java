@@ -22,6 +22,8 @@ import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
@@ -39,8 +41,12 @@ public class ProfileScreen extends AppCompatActivity {
     String userName="", sex="";
     long totalWorkOuts = 0;
     double totalDistance = 0;
+    double totalCalories = 0;
+    double UItotalDistance = 0;
+    double UItotalCalories = 0;
     long totalSecs=0;
     private double stepLength;
+    private int userWeight = 0;
     private String startTime = "";
     private int noofWeeks = 1;
     int age =0;
@@ -90,8 +96,11 @@ public class ProfileScreen extends AppCompatActivity {
         else
             stepLength = mPedometerSettings.getUserheight()*0.413;
 
-        totalDistance = (double)(stepLength * (double)totalStepCounts)/100000.0;
+        userWeight = mPedometerSettings.getUserWeight();
 
+        totalDistance = (double)(stepLength * (double)totalStepCounts)/100000.0;
+        totalCalories = ((userWeight * 28)/100000.0)*totalStepCounts;
+        Log.i(TAG,"Totalcalories: "+totalCalories);
 
         String totalTimeQuery = "select sum("+ StepCounterTable.C_TOTALTIME+ ") from "+StepCounterTable.TABLE_NAME;
         c = myDB.rawQuery(totalTimeQuery, null);
@@ -165,23 +174,36 @@ public class ProfileScreen extends AppCompatActivity {
         dropdown.setSelection(spinnerPosition);
         getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
-        ((TextView)findViewById(R.id.distanceWeekly)).setText(String.valueOf(totalDistance/noofWeeks)+ " km");
-        ((TextView)findViewById(R.id.workoutsWeekly)).setText(String.valueOf(totalWorkOuts/noofWeeks) + " times");
+        double distanceSoFar = 0;
+        if(mPedometerSettings.isServiceRunning()) {
+            int stepsSoFar = mPedometerSettings.getStepCount();
+            distanceSoFar = (stepLength * stepsSoFar) / 100000;
+        }
+
+
+        DecimalFormat df = new DecimalFormat("#.###");
+        df.setRoundingMode(RoundingMode.CEILING);
+
+
+        ((TextView)findViewById(R.id.distanceWeekly)).setText(df.format((totalDistance + distanceSoFar)/noofWeeks)+ " km");
         timeWeeklyView = (TextView)findViewById(R.id.timeWeekly);
         timeWeeklyView.setText(avgTimeString);
-        ((TextView)findViewById(R.id.caloriesWeekly)).setText("");
+        ((TextView)findViewById(R.id.caloriesWeekly)).setText(df.format(totalCalories/noofWeeks) + " Cal");
 
-        ((TextView)findViewById(R.id.distanceTotal)).setText(String.valueOf(totalDistance)+ " km");
-        ((TextView)findViewById(R.id.workoutsTotal)).setText(String.valueOf(totalWorkOuts) + " times");
+        ((TextView)findViewById(R.id.distanceTotal)).setText(df.format((totalDistance+ distanceSoFar))+ " km");
+        ((TextView)findViewById(R.id.caloriesTotal)).setText(df.format(totalCalories)+ " Cal");
         timeTotalView = (TextView)findViewById(R.id.timeTotal);
         timeTotalView.setText(totalTimeString);
-        ((TextView)findViewById(R.id.caloriesTotal)).setText("");
+       //((TextView)findViewById(R.id.caloriesTotal)).setText("");
 
         mIsRunning = mPedometerSettings.isServiceRunning();
         if(mIsRunning) {
             bindStepService();
             startDurationCounter();
+
         }
+        ((TextView)findViewById(R.id.workoutsWeekly)).setText(String.valueOf(totalWorkOuts/noofWeeks) + " times");
+        ((TextView)findViewById(R.id.workoutsTotal)).setText(String.valueOf(totalWorkOuts) + " times");
     }
 
     public String convertTimeToString(long totalSecs)
@@ -282,7 +304,9 @@ public class ProfileScreen extends AppCompatActivity {
             values.put(UserTable.COLUMN_AGE,ageVal);
             values.put(UserTable.COLUMN_HEIGHT, heightVal);
             values.put(UserTable.COLUMN_WEIGHT,weightVal);
-            db.updateUserValue(values);
+            //db.updateUserValue(values);
+            getContentResolver().update(PedometerContentProvider.USERTABLE_CONTENT_URI,values,null,null);
+
         }
 
         Intent intent = new Intent(ProfileScreen.this, Pedometer.class);
@@ -323,6 +347,11 @@ public class ProfileScreen extends AppCompatActivity {
             msg.obj = obj;
             mHandler.sendMessage(msg);
         }
+
+        public void graphData(Object obj)
+        {
+
+        }
     };
 
     private void unbindStepService() {
@@ -337,7 +366,7 @@ public class ProfileScreen extends AppCompatActivity {
             Log.i(TAG,"Service connected in Profile Screen");
             mService = ((StepService.StepBinder)service).getService();
             mService.registerCallback(mCallback);
-            mService.reloadSettings();
+
         }
         public void onServiceDisconnected(ComponentName className) {
             mService = null;
@@ -350,6 +379,16 @@ public class ProfileScreen extends AppCompatActivity {
                 StepService.class), mConnection, Context.BIND_AUTO_CREATE + Context.BIND_DEBUG_UNBIND);
     }
 
+    private void updateUI()
+    {
+        DecimalFormat df = new DecimalFormat("#.###");
+        df.setRoundingMode(RoundingMode.CEILING);
+
+        ((TextView)findViewById(R.id.distanceWeekly)).setText(df.format((UItotalDistance/noofWeeks))+ " km");
+        ((TextView)findViewById(R.id.caloriesWeekly)).setText(df.format(UItotalCalories/noofWeeks) + " Cal");
+        ((TextView)findViewById(R.id.distanceTotal)).setText(df.format(UItotalDistance)+ " km");
+        ((TextView)findViewById(R.id.caloriesTotal)).setText(df.format(UItotalCalories)+ " Cal");
+    }
 
 
     private static final int STEPS_MSG = 1;
@@ -360,8 +399,12 @@ public class ProfileScreen extends AppCompatActivity {
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case STEPS_MSG:
-                    totalDistance += (Double)msg.obj;
+                    Double mStepValue = (Double)msg.obj;
+                    Log.i(TAG,"Steps in Profile Screen: "+mStepValue);
+                    UItotalDistance = totalDistance + ((mStepValue * stepLength)/100000.0);
+                    UItotalCalories = totalCalories + ((userWeight * 28)/100000.0)*mStepValue;
                     Log.i(TAG,"TotalDistances: "+totalDistance);
+                    updateUI();
                     break;
                 case LOCATION_MSG:
 

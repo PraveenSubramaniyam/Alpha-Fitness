@@ -1,0 +1,27 @@
+<!--
+ Top-level content view for the layout fragment sample.  This version is
+     for display when in landscape: we can fit both titles and dialog.
+-->
+
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:baselineAligned="false"
+    android:orientation="vertical"
+    android:weightSum="11">
+
+    <fragment
+        android:id="@+id/titles"
+        android:layout_width="match_parent"
+        android:layout_height="0px"
+        android:layout_weight="3"
+        class="com.development.mobiledevice.alphafitness.workoutdetailsscreenTop" />
+
+    <com.github.mikephil.charting.charts.LineChart
+        android:id="@+id/chart1"
+        android:layout_width="match_parent"
+        android:layout_height="0px"
+        android:layout_weight="7"/>
+
+</LinearLayout>
+

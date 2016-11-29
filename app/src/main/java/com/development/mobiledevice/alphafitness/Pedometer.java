@@ -25,6 +25,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Color;
@@ -49,21 +50,44 @@ import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.PolylineOptions;
 import android.support.v4.content.ContextCompat;
-import  	android.support.v4.app.ActivityCompat;
+import android.support.v4.app.ActivityCompat;
 import android.Manifest;
+import android.widget.Toast;
 
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.Legend.LegendForm;
+import com.github.mikephil.charting.components.Legend.LegendForm;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.components.YAxis.AxisDependency;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.highlight.Highlight;
+import com.github.mikephil.charting.listener.OnChartValueSelectedListener;
+import com.github.mikephil.charting.utils.ColorTemplate;
+
+
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 
-public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
+public class Pedometer extends FragmentActivity implements OnMapReadyCallback, OnChartValueSelectedListener {
 	private static final String TAG = "Pedometer";
     private SharedPreferences mSettings;
     private PedometerSettings mPedometerSettings;
     private TextView mStepValueView;
     private TextView mDurationView;
     private double mStepValue;
-    private boolean mQuitting = false; // Set when user selected Quit from menu, can be used by onPause, onStop, onDestroy
     private GoogleMap mMap;
-    private CountDownTimer newtimer;
+
+    private LineChart mChart;
+    private double stepLength;
+    private TextView minMinsPerKmView;
+    private TextView maxMinsPerKmView;
+    private TextView avgMinsPerKmView;
+
     /**
      * True, when service is running.
      */
@@ -87,12 +111,12 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
 
         SQLiteDatabase myDB = myDBHelper.getReadableDatabase();
         String userSelect = "select "+UserTable.COLUMN_USERID +" from "+UserTable.TABLE_NAME;
-        Cursor c = myDB.rawQuery(userSelect, null);
+        Cursor c = myDB.rawQuery(userSelect,null);
+        //Cursor c = getApplicationContext().getContentResolver().query(PedometerContentProvider.USERTABLE_CONTENT_URI, null, null, null, null);
         if (c.moveToFirst()) {
             userExists = 1;
         }
         c.close();
-        myDB.close();
 
         mSettings = PreferenceManager.getDefaultSharedPreferences(this);
         mPedometerSettings = new PedometerSettings(mSettings);
@@ -107,24 +131,255 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
         else
         {
             setContentView(R.layout.activity_main);
+            startTime = mPedometerSettings.getWorkoutStartTime();
+
+            if((mPedometerSettings.getUserSex().equals("Male")))
+                stepLength = mPedometerSettings.getUserheight()*0.415;
+            else
+                stepLength = mPedometerSettings.getUserheight()*0.413;
+
+            Log.i(TAG,"StepLength: "+stepLength);
             mIsRunning = mPedometerSettings.isServiceRunning();
-            if(mIsRunning)
+            Log.i(TAG,"On create IsService Running: "+mIsRunning);
+            if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
+
+                mStepValueView = (TextView) findViewById(R.id.distance);
+                mDurationView = (TextView) findViewById(R.id.duration);
+                if (mDurationView == null)
+                    Log.i(TAG, "durationview object null");
+
+                if (mIsRunning) {
+                    Button startWorkout = (Button) findViewById(R.id.startWorkout);
+                    startWorkout.setText("Stop Workout");
+                    bindStepService();
+                    startDurationCounter();
+                    UpdateDistanceUI();
+                }
+                SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                        .findFragmentById(R.id.map);
+                mapFragment.getMapAsync(this);
+
+
+            }
+            else
             {
-                Button startWorkout = (Button) findViewById(R.id.startWorkout);
-                startWorkout.setText("Stop Workout");
-                bindStepService();
-                startDurationCounter();
+                Log.i(TAG,"Landscape Mode");
+                mChart = (LineChart) findViewById(R.id.chart1);
+                minMinsPerKmView = (TextView) findViewById(R.id.minminsperkm);
+                maxMinsPerKmView = (TextView) findViewById(R.id.maxminsperkm);
+                avgMinsPerKmView = (TextView) findViewById(R.id.avgminsperkm);
+
+                if(mChart != null)
+                    Log.i(TAG,"Chart not null");
+                mChart.setViewPortOffsets(0, 0, 0, 0);
+                mChart.setOnChartValueSelectedListener(this);
+                // enable description text
+                mChart.getDescription().setEnabled(true);
+                // enable touch gestures
+                mChart.setTouchEnabled(true);
+                // enable scaling and dragging
+                mChart.setDragEnabled(true);
+                mChart.setScaleEnabled(true);
+                mChart.setDrawGridBackground(false);
+                // if disabled, scaling can be done on x- and y-axis separately
+                mChart.setPinchZoom(true);
+                // set an alternative background color
+                mChart.setBackgroundColor(Color.LTGRAY);
+                LineData data = new LineData();
+                data.setValueTextColor(Color.WHITE);
+                // add empty data
+                mChart.setData(data);
+                mChart.animateXY(2000, 2000);
+                // get the legend (only possible after setting data)
+                Legend l = mChart.getLegend();
+                // modify the legend ...
+                l.setForm(LegendForm.LINE);
+                // l.setTypeface(mTfLight);
+                l.setTextColor(Color.WHITE);
+                XAxis xl = mChart.getXAxis();
+                //  xl.setTypeface(mTfLight);
+                xl.setTextColor(Color.WHITE);
+                xl.setDrawGridLines(false);
+                xl.setAvoidFirstLastClipping(true);
+                xl.setEnabled(true);
+                YAxis leftAxis = mChart.getAxisLeft();
+                // leftAxis.setTypeface(mTfLight);
+                leftAxis.setTextColor(Color.WHITE);
+                leftAxis.setAxisMaximum(100f);
+                leftAxis.setAxisMinimum(0f);
+                leftAxis.setDrawGridLines(true);
+
+                YAxis rightAxis = mChart.getAxisRight();
+                rightAxis.setEnabled(false);
+                if (mIsRunning) {
+                    bindStepService();
+                }
             }
         }
-        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.map);
-        mapFragment.getMapAsync(this);
+    }
 
-        mStepValueView = (TextView) findViewById(R.id.distance);
-        mDurationView = (TextView) findViewById(R.id.duration);
-        if(mDurationView == null)
-            Log.i(TAG,"durationview object null");
+    private void UpdateDistanceUI()
+    {
+        int stepsSoFar = mPedometerSettings.getStepCount();
+        double distance = (stepLength*stepsSoFar)/100000;
 
+        DecimalFormat df = new DecimalFormat("#.###");
+        df.setRoundingMode(RoundingMode.CEILING);
+        mStepValueView.setText("" + df.format(distance));
+
+    }
+
+    private LineDataSet createSet(String name) {
+        LineDataSet set = new LineDataSet(null, name);
+        set.setAxisDependency(AxisDependency.LEFT);
+        set.setColor(ColorTemplate.getHoloBlue());
+        set.setCircleColor(Color.WHITE);
+        set.setLineWidth(2f);
+        set.setCircleRadius(4f);
+        set.setFillAlpha(65);
+        set.setFillColor(ColorTemplate.getHoloBlue());
+        set.setHighLightColor(Color.rgb(244, 117, 117));
+        set.setValueTextColor(Color.WHITE);
+        set.setValueTextSize(9f);
+        set.setDrawValues(false);
+        return set;
+    }
+
+    private int[] mColors = new int[] {
+            ColorTemplate.VORDIPLOM_COLORS[0],
+            ColorTemplate.VORDIPLOM_COLORS[1],
+            ColorTemplate.VORDIPLOM_COLORS[2]
+    };
+
+    private void addEntry(ArrayList<Integer> graphValue)
+    {
+        if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            int minVal = Integer.MAX_VALUE;
+            int maxVal = 0;
+            int sum = 0;
+            double distance;
+            int totalsecs, secs,mins;
+
+            mChart = (LineChart) findViewById(R.id.chart1);
+            TextView mStepValueView = (TextView) findViewById(R.id.distance);
+            if(mStepValueView != null)
+                Log.i(TAG,"stepview not null");
+            else
+                Log.i(TAG," stepview null");
+
+
+            if(mChart != null) {
+                LineData data = mChart.getData();
+                LineDataSet set1, set2;
+                set1 = createSet("Steps Per Min");
+                set2 = createSet("Calories per Min");
+
+                data.removeDataSet(1);
+                data.removeDataSet(0);
+                data.addDataSet(set1);
+                data.addDataSet(set2);
+
+                int xValue = 1;
+                for (Integer value : graphValue) {
+                    //code here
+                    set1.addEntry(new Entry(xValue, value));
+                    int calorie = (int) Math.round(((mPedometerSettings.getUserWeight() * 28)/100000.0)*value);
+                    set2.addEntry(new Entry(xValue++,calorie));
+
+                    if(value != 0)
+                    {
+                        if(value  < minVal)
+                            minVal = value;
+                    }
+
+                    if(value > maxVal)
+                        maxVal = value;
+                    sum += value;
+                }
+
+                if(minVal != Integer.MAX_VALUE) {
+                    //minVal = minVal / 5;
+                    distance = (minVal * stepLength) / 100000;
+                    totalsecs = (int) (1 / distance) * 60;
+                    mins = totalsecs / 60;
+                    secs = totalsecs - mins * 60;
+                    minMinsPerKmView.setText(String.valueOf(mins) + ":" + String.valueOf(secs));
+                }
+                else
+                    minMinsPerKmView.setText("Infinity");
+
+                if(maxVal != 0) {
+                    //maxVal = maxVal / 5;
+                    distance = (maxVal * stepLength) / 100000;
+                    totalsecs = (int) (1 / distance) * 60;
+                    mins = totalsecs / 60;
+                    secs = totalsecs - mins * 60;
+                    maxMinsPerKmView.setText(String.valueOf(mins) + ":" + String.valueOf(secs));
+                }
+                else
+                    maxMinsPerKmView.setText("Infinity");
+
+                if(sum != 0) {
+                    maxVal = sum / ((xValue - 1) * 1);
+                    distance = (maxVal * stepLength) / 100000;
+                    totalsecs = (int) (1 / distance) * 60;
+                    mins = totalsecs / 60;
+                    secs = totalsecs - mins * 60;
+                    avgMinsPerKmView.setText(String.valueOf(mins) + ":" + String.valueOf(secs));
+                }
+                else
+                    avgMinsPerKmView.setText("Infinity");
+
+
+                int color1 = mColors[1 % mColors.length];
+                int color2 = mColors[2 % mColors.length];
+
+                set1.setColor(color1);
+                set1.setCircleColor(color1);
+
+                set2.setColor(color2);
+                set2.setCircleColor(color2);
+
+                set1.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+                set2.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+                set1.setCubicIntensity(0.2f);
+                set2.setCubicIntensity(0.2f);
+
+                // make the first DataSet dashed
+                set1.enableDashedLine(10, 10, 0);
+                set1.setColors(ColorTemplate.VORDIPLOM_COLORS);
+                set1.setCircleColors(ColorTemplate.VORDIPLOM_COLORS);
+
+                set1.setDrawFilled(true);
+
+                set2.setDrawFilled(true);
+
+                set1.setFillColor(Color.GREEN);
+                set2.setFillColor(Color.rgb(216, 8, 140));
+
+                data.notifyDataChanged();
+                //let the chart know it's data has changed
+                mChart.notifyDataSetChanged();
+                // limit the number of visible entries
+                mChart.setVisibleXRangeMaximum(5);
+                // mChart.setVisibleYRange(30, AxisDependency.LEFT);
+
+                // move to the latest entry
+                mChart.moveViewToX(data.getEntryCount());
+            }
+            else
+                Log.i(TAG,"mchart null");
+        }
+    }
+
+    @Override
+    public void onValueSelected(Entry e, Highlight h) {
+        Log.i("Entry selected", e.toString());
+    }
+
+    @Override
+    public void onNothingSelected() {
+        Log.i("Nothing selected", "Nothing selected.");
     }
 
     @Override
@@ -139,7 +394,11 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
 
 
     private void drawPath(LatLongArrayClass pointsList){
-
+        Log.i(TAG,"draw Path called");
+        if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            Log.i(TAG,"InLadscape Mode no map");
+            return;
+        }
         if(pointsList == null) {
             Log.e(TAG, "points is null");
             return;
@@ -156,18 +415,19 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
         mMap.clear();  //clears all Markers and Polylines
 
         if(points.size() > 1) {
+            Log.i(TAG,"point size greater than 1");
             PolylineOptions options = new PolylineOptions().width(10).color(Color.RED).geodesic(true);
             for (LatLongClass p : points) {
                 LatLng latLng = new LatLng(p.getLatitude(), p.getLongitude());
+                Log.i(TAG,"Point: "+p.getLatitude()+" "+p.getLongitude());
                 options.add(latLng);
             }
             mMap.addPolyline(options); //add Polyline
-            int DARK_GREEN = Color.argb(1, 0, 102, 0);
             mMap.addCircle(new CircleOptions()
                     .center(new LatLng(endPoint.getLatitude(), endPoint.getLongitude())) //end location
                     .radius(7)
-                    .strokeColor(DARK_GREEN)
-                    .fillColor(DARK_GREEN));
+                    .strokeColor(Color.GREEN)
+                    .fillColor(Color.GREEN));
         }
 
         mMap.addCircle(new CircleOptions()
@@ -183,9 +443,7 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
     protected void onStart() {
         Log.i(TAG, "[ACTIVITY] onStart");
         super.onStart();
-        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.map);
-        mapFragment.getMapAsync(this);
+
     }
 
     @Override
@@ -247,21 +505,15 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
     public void startWorkout (View view)
     {
         Button startWorkout = (Button) findViewById(R.id.startWorkout);
-        if(startWorkout.getText().equals("Start Workout")) {
+        Log.i(TAG, "[ACTIVITY] Start/Stop Workout is service running "+mIsRunning);
+        if(!mIsRunning)
+        {
             startWorkout.setText("Stop Workout");
-
-            mSettings = PreferenceManager.getDefaultSharedPreferences(this);
-            // Read from preferences if the service was running on the last onPause
-            mIsRunning = mPedometerSettings.isServiceRunning();
-            Log.i(TAG, "[ACTIVITY] is service running "+mIsRunning);
-            // Start the service if this is considered to be an application start (last onPause was long ago)
-            if (!mIsRunning) {
-                Log.i(TAG, "[ACTIVITY] Starting Service ");
-                startStepService();
-                bindStepService();
-            }
-
-            mPedometerSettings.clearServiceRunning();
+            Log.i(TAG, "[ACTIVITY] Starting Service ");
+            startStepService();
+            bindStepService();
+            mIsRunning = true;
+            mPedometerSettings.saveServiceRunning(true);
         }
         else
         {
@@ -269,6 +521,7 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
             mIsRunning = false;
             unbindStepService();
             stopStepService();
+            mPedometerSettings.clearServiceRunning();
         }
     }
     
@@ -279,9 +532,7 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
             unbindStepService();
             customHandler.removeCallbacks(updateTimerThread);
         }
-        mPedometerSettings.saveServiceRunning(mIsRunning);
         super.onPause();
-        savePaceSetting();
     }
 
     @Override
@@ -300,27 +551,17 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
         super.onDestroy();
     }
 
-    private void setDesiredPaceOrSpeed(float desiredPaceOrSpeed) {
-        if (mService != null) {
-
-        }
-    }
-    
-    private void savePaceSetting() {
-       // mPedometerSettings.savePaceOrSpeedSetting(mMaintain, mDesiredPaceOrSpeed);
-    }
-
     private StepService mService;
     
     private ServiceConnection mConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder service) {
             mService = ((StepService.StepBinder)service).getService();
             mService.registerCallback(mCallback);
-            mService.reloadSettings();
+            Log.i(TAG,"Service connected");
         }
         public void onServiceDisconnected(ComponentName className) {
-
             mService = null;
+            Log.i(TAG,"Service unconnected");
         }
     };
 
@@ -359,16 +600,10 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
     }
     
     private void startStepService() {
-        if (!mIsRunning) {
-            Log.i(TAG, "[SERVICE] Start");
-            startDurationCounter();
-            mIsRunning = true;
-            startService(new Intent(Pedometer.this,
+        Log.i(TAG, "[SERVICE] Start");
+        startDurationCounter();
+        startService(new Intent(Pedometer.this,
                     StepService.class));
-
-        }
-        else
-            Log.i(TAG,"[SERVICE] Service already running");
     }
     
     private void bindStepService() {
@@ -380,6 +615,7 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
     private void unbindStepService() {
         Log.i(TAG, "[SERVICE] Unbind");
         unbindService(mConnection);
+        mService.unregisterCallback();
     }
     
     private void stopStepService() {
@@ -389,31 +625,10 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
             stopService(new Intent(Pedometer.this,
                   StepService.class));
         }
-        mIsRunning = false;
-       // timeSwapBuff += timeInMilliseconds;
         customHandler.removeCallbacks(updateTimerThread);
     }
     
-    private void resetValues(boolean updateDisplay) {
-        if (mService != null && mIsRunning) {
-            mService.resetValues();                    
-        }
-        else {
-            mStepValueView.setText("0");
-            SharedPreferences state = getSharedPreferences("state", 0);
-            SharedPreferences.Editor stateEditor = state.edit();
-            if (updateDisplay) {
-                stateEditor.putInt("steps", 0);
-                stateEditor.putInt("pace", 0);
-                stateEditor.putFloat("distance", 0);
-                stateEditor.putFloat("speed", 0);
-                stateEditor.putFloat("calories", 0);
-                stateEditor.commit();
-            }
-        }
-    }
 
-    // TODO: unite all into 1 type of message
     private StepService.ICallback mCallback = new StepService.ICallback() {
         public void stepsChanged(double value) {
             Message msg = new Message();
@@ -429,23 +644,45 @@ public class Pedometer extends FragmentActivity implements OnMapReadyCallback {
             msg.obj = obj;
             mHandler.sendMessage(msg);
         }
+
+        public void graphData(Object obj)
+        {
+            Message msg = new Message();
+            msg.what = GRAPH_DATA_MSG;
+            msg.obj = obj;
+            mHandler.sendMessage(msg);
+        }
     };
     
     private static final int STEPS_MSG = 1;
     private static final int LOCATION_MSG = 2;
+    private static final int GRAPH_DATA_MSG = 3;
     
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case STEPS_MSG:
+                    double distance;
                     mStepValue = (double)msg.obj;
-                    Log.i(TAG,"Distance: "+mStepValue);
-                    mStepValueView.setText("" + mStepValue);
+                    distance = (mStepValue*stepLength)/100000;
+                    //Toast.makeText(getApplicationContext(), "Distance: "+distance, Toast.LENGTH_LONG).show();
+                    Log.i(TAG,"Distance: "+distance);
+                    if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
+                        DecimalFormat df = new DecimalFormat("#.###");
+                        df.setRoundingMode(RoundingMode.CEILING);
+                        mStepValueView.setText("" + df.format(distance));
+                    }
                     break;
                 case LOCATION_MSG:
                     LatLongArrayClass pointsArray = (LatLongArrayClass) msg.obj;
                     drawPath(pointsArray);
+                    break;
+                case GRAPH_DATA_MSG:
+                    ArrayList<Integer> graphData;
+                    graphData = (ArrayList<Integer>)msg.obj;
+                    Log.i(TAG,"Graph Data Msg called");
+                    addEntry(graphData);
                     break;
                 default:
                     super.handleMessage(msg);

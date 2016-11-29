@@ -46,6 +46,14 @@
             android:name=".MapsActivity"
             android:label="@string/title_activity_maps" />
         <activity android:name=".createUser"></activity>
+
+
+        <provider
+        android:name=".PedometerContentProvider"
+        android:authorities="com.development.mobiledevice.alphafitness.PedometerContentProvider"
+        android:exported="true"
+        android:multiprocess="true" >
+    </provider>
     </application>
 
 </manifest>
